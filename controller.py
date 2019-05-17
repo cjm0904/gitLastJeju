@@ -1,8 +1,12 @@
+#-*-coding:utf-8
 import serial, json, time
-import ucu, mymqtt as my
+import ucu, myMqtt as my
 import gc
+import pymysql as sql
 
-ser = serial.Serial(port='', baudrate=9600, stopbits=1, parity=serial.PARITY_EVEN, bytesize=serial.EIGHTBITS, timeout=3)
+ser = serial.Serial(port='/dev/ttyUSB1', baudrate=9600, stopbits=1, parity=serial.PARITY_EVEN, bytesize=serial.EIGHTBITS, timeout=3)
+conn = sql.connect(host='127.0.0.1', user='root', password='ziumks', db='jeju', charset='utf8')
+
 
 buff = 1024
 
@@ -94,26 +98,40 @@ def ctrlIndoorUnit(outdoor, indoor, order):
     recv = ser.readline()
     if not recv:
         #TODO : ERROR MSG
+        msg = json.dumps({'t':time.time(), 'ack':'F'})
+        ackTopic = 'ack/' + 'T12' + '/' + 'C001'
+        my.mqClient.publish(topic=ackTopic,payload=msg, qos=0)
         pass
     else:
-    iii    ack = ackFront + outdoor + indoor + ackBack
+        ack = ackFront + outdoor + indoor + ackBack
         ack = gencrc(ack)
+        ackTopic = 'ack/' + 'T12' + '/' + 'C001'
+        now = time.time()
         if recv == ack:
             msg = json.dumps({'t':time.time(), 'ack':'T'})
-            my.mqClient.publish(topic='', payload=msg, qos=0)
-            #TODO :save ACK log in DB 
-            #TODO : use jemalloc
+            my.mqClient.publish(topic=ackTopic, payload=msg, qos=0)
+            qry = 'insert into jeju_ack(deviceNo, time, ackTime) values (%s, %s, %s)'
+            param = (indoor, now, msg['t'])
+            with conn.cursor() as cursor:
+                cursor.execute(qry, param)
+                cursor.commit()
             pass
         else:
             msg = json.dumps({'t':time.time(), 'ack':'F'})
-            my.mqClient.publish(topic='', payload=msg, qos=0)
-            #TODO : save ACK log in DB
+            my.mqClient.publish(topic=ackTopic, payload=msg, qos=0)
+            qry = 'insert into jeju_ack(deviceNo, time, ackTime) values (%s, %s, %s)'
+            param = (indoor, now, msg['t'])
+            with conn.cursor() as cursor:
+                cursor.execute(qry, param)
+                cursor.commit()
             pass
+    gc.collect()
 
 
 def ctrlAhuUnit(outdoor, indoor, order):
     data = [0x32, 0x00, 0x26, 0x6A, 0xEE, 0xFF, 0x20, outdoor, indoor, 0xC0, 0x13, 0x00, 0x6]
     dataset = []
+    ackTopic = 'ack/' + 'T12' + '/' + 'C001'
 
     if 'control' in eval(order).keys():
         dataset += 0x40, 0x00
@@ -144,22 +162,34 @@ def ctrlAhuUnit(outdoor, indoor, order):
     ser.write(data)
     recv = ser.readline()
     if not recv:
+        msg = json.dumps({'t':time.time(), 'ack':'F'})
+        my.myClient.publish(topic=ackTopic, payload=msg, qos=0)
         #TODO : Error MSG
         pass
     else:
         ack = ackFront + outdoor + indoor + ackBack
         ack = gencrc(ack)
+        now = time.time()
         if recv == ack:
             msg = json.dumps({'t':time.time(), 'ack':'T'})
-            my.mqClient.publish(topic='', payload=msg, qos=0)
+            my.mqClient.publish(topic=ackTopic, payload=msg, qos=0)
+            qry = 'insert into jeju_ack(deviceNo, time, ackTime) values (%s, %s, %s)'
+            param = (indoor, now, msg['t'])
+            with conn.cursor as cursor:
+                cursor.execute(qry, param)
+                cursor.commit()
             #TODO : save ACK log in DB
-            #TODO : use jemalloc
             pass
         else:
             msg = json.dumps({'t':time.time(), 'ack':'F'})
-            my.mqClient.publish(topic='', payload=msg, qos=0)
+            my.mqClient.publish(topic=ackTopic, payload=msg, qos=0)
+            qry = 'insert into jeju_ack(deviceNo, time, ackTime) values (%s, %s, %s)'
+            with conn.cursor as cursor:
+                cursor.execute(qry, param)
+                cursor.commit()
             #TODO : save ACK log in DB
             pass
+    gc.collect()
 
 def addressing(num):
 
@@ -169,14 +199,13 @@ def addressing(num):
     addrData = gencrc(addrData)
     priorAddr=-1
 
-    for i in range(0:10):
+    for i in range(0,10):
         ser.write(addrData.encode())
         recv = ser.readline()
         outAddr = recv[17]
         if priorAddr==outAddr:
             print("installation error. check Address")
         #TODO : save outAddr Number
-
         priorAddr=outAddr
         time.sleep(3)
     #STEP2
@@ -204,9 +233,7 @@ def addressing(num):
             recvPckt = ser.readline()
             if recvPckt is not None:
                 #TODO : save outAddr Num
-
-
-    pass
+                pass
 
 
 def keepAddresing(num):

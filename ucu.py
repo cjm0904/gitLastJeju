@@ -12,7 +12,10 @@ def _initial(c):
         c = c  << 1
     return crc
 
-_tab = [_initial(i) for in range(256)]
+#_tab = [_initial(i) for in range(256)]
+_tab = []
+for i in range(256):
+    _tab += [_initial(i)]
 
 def _update_crc(crc,c):
     cc = 0xff & c
