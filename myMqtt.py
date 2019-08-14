@@ -1,6 +1,6 @@
 import paho.mqtt.client as mqtt
 
-brkIp = '45.120.69.86'
+brkIp = 'mqtt.mirae-eco.com'
 brkPort = 1883
 brkKeepAlive = 60
 tls_arr = ''
