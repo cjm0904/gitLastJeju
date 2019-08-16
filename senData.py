@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from serial import Serial
 import myMqtt as mqtt
 import time, json
@@ -7,21 +8,17 @@ import pymysql as sql
 co2 = 0
 temperature = 0
 humidity = 0
-ser = Serial("/dev/ttyUSB0", 9600, timeout=1)
+ser = Serial("/dev/ttyUSB0", 9600, timeout=1) # zigbee serial을 가져옴.
 conn = sql.connect(host='127.0.0.1', user='root', password='ziumks', db='jeju', charset='utf8')
-siteNm = "s002"
+siteNm = "s002" #site name
 
 def sensingData():
-    row = ''
+    row = '' # 밑에서 select한 결과를 넣기 위한 변수
     try:
         while True:
-            wn1, wn2, wn3 = 0,0,0
+            wn1, wn2, wn3 = 0,0,0 #1,2,3번 컨네이터에 대한 warning
             # db에서 사용자가 설정한 온습도의 최대 최소를 select
             arr = []
-#            selQry = 'select deviceNo, nt, hm, hx, cm, cx, tm, tx, t from setting where t =(select max(t) from setting)'
-#            with conn.cursor(sql.cursors.DictCursor) as cursor:
-#                cursor.execute(selQry)
-#                row = cursor.fetchone()
             try:
                 data = ser.readline().decode('utf-8')
 #                print(data)
@@ -34,6 +31,7 @@ def sensingData():
                 print(data)
 #                ser.write(str(row).encode('utf8'))
                 cNum = (data[0:4]).lower()
+                # cNum에 맞는 정보를 zigbee로 전송. 여기서 해당 컨테이너에 정보가 들어간다.
                 with conn.cursor(sql.cursors.DictCursor) as cursor:
                     qry = 'select * from setting where deviceNo = %s and t = (select MAX(t) from setting where deviceNo=%s) '
                     cursor.execute(qry,(cNum,cNum))
@@ -43,7 +41,7 @@ def sensingData():
                         print("ROW : ", row)
                         print("ROW endcode : ", str(row).encode('utf-8'))
                         ser.write(str(row).encode('utf-8'))
-            
+                #zigbee로 송신된 데이터를 파싱하여 각각의 변수에 담음
                 rawC1 = (data[4:12])
                 rawT1 = (data[14:24])
                 rawH1 = (data[26:34])
@@ -70,14 +68,16 @@ def sensingData():
                 h3 = ((int(rawH3[0:2]) - 0x30) * 10 + (int(rawH3[2:4]) - 0x30) *1 + (int(rawH3[6:8]) - 0x30) * 0.1) * 10  
                 # co2, temperature, humidity 값 사용방법은 매뉴얼 참고
 
-                c3 += int((c1-c2)/2)
-                t3 += int((t1-t2)/2)
-                h3 += int((h1-h2)/2)
+#                c3 += int((c1-c2)/2)
+#                t3 += int((t1-t2)/2)
+#                h3 += int((h1-h2)/2)
                 
+                # 해당 컨테이너 장비가 켜져 있는지 꺼져 있는지에 대한 값으로 0이면 off, 1이면 on
                 hq = int(data[-5])
                 cq = int(data[-4])
                 tq = int(data[-3])
- 
+              
+                # 데이터가 꼬여서 들어오는 경우가 있기 때문에 이를 확인하는 과정이 필요.
                 if data[-6] != str(0):
                     continue
                 elif data[-6] == str(0):
@@ -90,7 +90,8 @@ def sensingData():
 #                     value3 = airQ.senAirQ(6)
 #                 elif cNum == 'c003':
 #                     value3 = airQ.senAirQ(9)
-
+                    # 이상한 값으로 들어왔을 경우 서버에서 에러처리를 쉽게 하기위해 -999로 담아 전송
+                    # -999로 값을 보내고, wn에 에러가 있음을 표시. 위와 마찬가지로 에러가 없으면 0, 있으면 1
                     if int(c1) < 0 and int(t1) < 0 and int(h1) < 0:
                         c1 = -999
                         t1 = -999
@@ -107,8 +108,7 @@ def sensingData():
                         h3 = -999
                         wn3 = 1
 
-#                if value3 is None:
-                    #wn3 = 1
+                    # wn 1,2,3,을 비트연산
                     wn = (wn3 << 2) + (wn2 << 1) + (wn1 << 0)
                     now = round(time.time())
                     result = {'tm': now, 't1': int(t1), 't2': int(t2), 't3': int(t3),
@@ -116,7 +116,7 @@ def sensingData():
                               'c1': int(c1), 'c2': int(c2), 'c3': int(c3),
                               'wn': int(wn), 'hq': hq, 'cq': cq, 'tq': tq
                               }  # 0 : off, 1: on
-
+                    #센싱된 결과값을 DB에저장
                     qry = 'insert into jeju_sensor(id, area, time, humidity, temperature1, temperature2, co2, checking) values(%s, %s, %s, %s, %s, %s, %s, %s)'
                     param = (cNum, cNum, now, humidity, temperature, temperature, co2, 0)
                     mqTopic = 'msr' + '/' + siteNm + '/' + cNum
